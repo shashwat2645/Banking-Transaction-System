@@ -9,6 +9,10 @@ import com.banking.banking_transaction_system.dto.response.TransferResponse;
 import com.banking.banking_transaction_system.entity.Account;
 import com.banking.banking_transaction_system.entity.Customer;
 import com.banking.banking_transaction_system.enums.AccountStatus;
+import com.banking.banking_transaction_system.exception.AccountNotFoundException;
+import com.banking.banking_transaction_system.exception.CustomerNotFoundException;
+import com.banking.banking_transaction_system.exception.InsufficientBalanceException;
+import com.banking.banking_transaction_system.exception.InvalidTransferException;
 import com.banking.banking_transaction_system.repository.AccountRepository;
 import com.banking.banking_transaction_system.repository.CustomerRepository;
 import com.banking.banking_transaction_system.service.AccountService;
@@ -34,7 +38,7 @@ public class AccountServiceImpl implements AccountService {
     public AccountResponse createAccount(CreateAccountRequest request) {
 
         Customer customer = customerRepository.findById(request.getCustomerId())
-                .orElseThrow(() -> new RuntimeException("Customer not found"));
+                .orElseThrow(() -> new CustomerNotFoundException("Customer not found"));
 
         String accountNumber = generateAccountNumber();
 
@@ -55,7 +59,7 @@ public class AccountServiceImpl implements AccountService {
     public AccountResponse deposit(DepositRequest request) {
 
         Account account = accountRepository.findByAccountNumber(request.getAccountNumber())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new AccountNotFoundException("Account not found"));
 
         account.setBalance(account.getBalance().add(request.getAmount()));
 
@@ -68,10 +72,10 @@ public class AccountServiceImpl implements AccountService {
     public AccountResponse withdraw(WithdrawRequest request) {
 
         Account account = accountRepository.findByAccountNumber(request.getAccountNumber())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new AccountNotFoundException("Account not found"));
 
         if (account.getBalance().compareTo(request.getAmount()) < 0) {
-            throw new RuntimeException("Insufficient balance");
+            throw new InsufficientBalanceException("Insufficient balance");
         }
 
         account.setBalance(account.getBalance().subtract(request.getAmount()));
@@ -85,7 +89,7 @@ public class AccountServiceImpl implements AccountService {
     public AccountResponse getAccount(String accountNumber) {
 
         Account account = accountRepository.findByAccountNumber(accountNumber)
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new AccountNotFoundException("Account not found"));
 
         return mapToResponse(account);
     }
@@ -118,24 +122,24 @@ public class AccountServiceImpl implements AccountService {
     public TransferResponse transfer(TransferRequest request) {
 
         Account sender = accountRepository.findByAccountNumber(request.getFromAccountNumber())
-                .orElseThrow(() -> new RuntimeException("Sender account not found"));
+                .orElseThrow(() -> new AccountNotFoundException("Sender account not found"));
 
         Account receiver = accountRepository.findByAccountNumber(request.getToAccountNumber())
-                .orElseThrow(() -> new RuntimeException("Receiver account not found"));
+                .orElseThrow(() -> new AccountNotFoundException("Receiver account not found"));
 
         // Sender and receiver should not be the same
         if (sender.getAccountNumber().equals(receiver.getAccountNumber())) {
-            throw new RuntimeException("Sender and receiver accounts cannot be the same.");
+            throw new InvalidTransferException("Sender and receiver accounts cannot be the same.");
         }
 
         // Amount should be greater than zero
         if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new RuntimeException("Transfer amount must be greater than zero.");
+            throw new InvalidTransferException("Transfer amount must be greater than zero.");
         }
 
         // Sender should have sufficient balance
         if (sender.getBalance().compareTo(request.getAmount()) < 0) {
-            throw new RuntimeException("Insufficient balance.");
+            throw new InsufficientBalanceException("Insufficient balance.");
         }
 
         sender.setBalance(sender.getBalance().subtract(request.getAmount()));
