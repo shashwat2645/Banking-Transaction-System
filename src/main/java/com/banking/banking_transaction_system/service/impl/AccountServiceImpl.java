@@ -9,6 +9,8 @@ import com.banking.banking_transaction_system.dto.response.TransferResponse;
 import com.banking.banking_transaction_system.entity.Account;
 import com.banking.banking_transaction_system.entity.Customer;
 import com.banking.banking_transaction_system.enums.AccountStatus;
+import com.banking.banking_transaction_system.enums.TransactionStatus;
+import com.banking.banking_transaction_system.enums.TransactionType;
 import com.banking.banking_transaction_system.exception.AccountNotFoundException;
 import com.banking.banking_transaction_system.exception.CustomerNotFoundException;
 import com.banking.banking_transaction_system.exception.InsufficientBalanceException;
@@ -16,6 +18,8 @@ import com.banking.banking_transaction_system.exception.InvalidTransferException
 import com.banking.banking_transaction_system.repository.AccountRepository;
 import com.banking.banking_transaction_system.repository.CustomerRepository;
 import com.banking.banking_transaction_system.service.AccountService;
+import com.banking.banking_transaction_system.service.TransactionService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,16 +27,12 @@ import java.math.BigDecimal;
 import java.util.Random;
 
 @Service
+@RequiredArgsConstructor
 public class AccountServiceImpl implements AccountService {
 
     private final AccountRepository accountRepository;
     private final CustomerRepository customerRepository;
-
-    public AccountServiceImpl(AccountRepository accountRepository,
-                              CustomerRepository customerRepository) {
-        this.accountRepository = accountRepository;
-        this.customerRepository = customerRepository;
-    }
+    private final TransactionService transactionService;
 
     @Override
     public AccountResponse createAccount(CreateAccountRequest request) {
@@ -65,6 +65,15 @@ public class AccountServiceImpl implements AccountService {
 
         Account updated = accountRepository.save(account);
 
+        transactionService.recordTransaction(
+                null,
+                updated,
+                request.getAmount(),
+                TransactionType.DEPOSIT,
+                TransactionStatus.SUCCESS,
+                "Cash deposit"
+        );
+
         return mapToResponse(updated);
     }
 
@@ -81,6 +90,15 @@ public class AccountServiceImpl implements AccountService {
         account.setBalance(account.getBalance().subtract(request.getAmount()));
 
         Account updated = accountRepository.save(account);
+
+        transactionService.recordTransaction(
+                updated,
+                null,
+                request.getAmount(),
+                TransactionType.WITHDRAW,
+                TransactionStatus.SUCCESS,
+                "Cash withdrawal"
+        );
 
         return mapToResponse(updated);
     }
@@ -146,8 +164,17 @@ public class AccountServiceImpl implements AccountService {
 
         receiver.setBalance(receiver.getBalance().add(request.getAmount()));
 
-        accountRepository.save(sender);
-        accountRepository.save(receiver);
+        Account updatedSender = accountRepository.save(sender);
+        Account updatedReceiver = accountRepository.save(receiver);
+
+        transactionService.recordTransaction(
+                updatedSender,
+                updatedReceiver,
+                request.getAmount(),
+                TransactionType.TRANSFER,
+                TransactionStatus.SUCCESS,
+                "Fund transfer"
+        );
 
         return TransferResponse.builder()
                 .message("Transfer completed successfully.")
