@@ -33,5 +33,5 @@ build/
 .vscode/
 
 
-### Environment Varaibles ###
+### Environment Variables ###
 .env
