@@ -2,11 +2,11 @@ package com.banking.banking_transaction_system.service;
 
 import com.banking.banking_transaction_system.entity.IdempotencyRecord;
 
+import java.util.Optional;
+
 public interface IdempotencyService {
 
-    IdempotencyRecord getByKey(String idempotencyKey);
-
-    boolean exists(String idempotencyKey);
+    Optional<IdempotencyRecord> findByKey(String idempotencyKey);
 
     IdempotencyRecord save(IdempotencyRecord record);
 }

@@ -42,9 +42,11 @@ public class AccountController {
 
     @PostMapping("/transfer")
     public ResponseEntity<TransferResponse> transfer(
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
             @RequestBody TransferRequest request) {
 
-        TransferResponse response = accountService.transfer(request);
+        TransferResponse response =
+                accountService.transfer(idempotencyKey, request);
 
         return ResponseEntity.ok(response);
     }

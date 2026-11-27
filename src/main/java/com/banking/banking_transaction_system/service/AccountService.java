@@ -17,5 +17,5 @@ public interface AccountService {
 
     AccountResponse getAccount(String accountNumber);
 
-    TransferResponse transfer(TransferRequest request);
+    TransferResponse transfer(String idempotencyKey, TransferRequest request);
 }

@@ -8,22 +8,24 @@ import com.banking.banking_transaction_system.dto.response.AccountResponse;
 import com.banking.banking_transaction_system.dto.response.TransferResponse;
 import com.banking.banking_transaction_system.entity.Account;
 import com.banking.banking_transaction_system.entity.Customer;
+import com.banking.banking_transaction_system.entity.IdempotencyRecord;
 import com.banking.banking_transaction_system.enums.AccountStatus;
+import com.banking.banking_transaction_system.enums.IdempotencyStatus;
 import com.banking.banking_transaction_system.enums.TransactionStatus;
 import com.banking.banking_transaction_system.enums.TransactionType;
-import com.banking.banking_transaction_system.exception.AccountNotFoundException;
-import com.banking.banking_transaction_system.exception.CustomerNotFoundException;
-import com.banking.banking_transaction_system.exception.InsufficientBalanceException;
-import com.banking.banking_transaction_system.exception.InvalidTransferException;
+import com.banking.banking_transaction_system.exception.*;
 import com.banking.banking_transaction_system.repository.AccountRepository;
 import com.banking.banking_transaction_system.repository.CustomerRepository;
 import com.banking.banking_transaction_system.service.AccountService;
+import com.banking.banking_transaction_system.service.IdempotencyService;
 import com.banking.banking_transaction_system.service.TransactionService;
+import com.banking.banking_transaction_system.util.HashUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 import java.util.Random;
 
 @Service
@@ -33,6 +35,7 @@ public class AccountServiceImpl implements AccountService {
     private final AccountRepository accountRepository;
     private final CustomerRepository customerRepository;
     private final TransactionService transactionService;
+    private final IdempotencyService idempotencyService;
 
     @Override
     public AccountResponse createAccount(CreateAccountRequest request) {
@@ -137,7 +140,35 @@ public class AccountServiceImpl implements AccountService {
 
     @Override
     @Transactional
-    public TransferResponse transfer(TransferRequest request) {
+    public TransferResponse transfer(String idempotencyKey, TransferRequest request) {
+
+        String requestData = String.join(
+                "|",
+                request.getFromAccountNumber(),
+                request.getToAccountNumber(),
+                request.getAmount().toPlainString()
+        );
+
+        String requestHash = HashUtil.generateHash(requestData);
+
+        Optional<IdempotencyRecord> existingRecord =
+                idempotencyService.findByKey(idempotencyKey);
+
+        if (existingRecord.isPresent()) {
+
+            if (!existingRecord.get().getRequestHash().equals(requestHash)) {
+                throw new IdempotencyKeyReuseException(
+                        "Idempotency key already used for a different request."
+                );
+            }
+
+            return TransferResponse.builder()
+                    .message("Request already processed.")
+                    .fromAccountNumber(request.getFromAccountNumber())
+                    .toAccountNumber(request.getToAccountNumber())
+                    .amount(request.getAmount())
+                    .build();
+        }
 
         Account sender = accountRepository.findByAccountNumber(request.getFromAccountNumber())
                 .orElseThrow(() -> new AccountNotFoundException("Sender account not found"));
@@ -176,11 +207,23 @@ public class AccountServiceImpl implements AccountService {
                 "Fund transfer"
         );
 
-        return TransferResponse.builder()
+        TransferResponse response = TransferResponse.builder()
                 .message("Transfer completed successfully.")
                 .fromAccountNumber(sender.getAccountNumber())
                 .toAccountNumber(receiver.getAccountNumber())
                 .amount(request.getAmount())
                 .build();
+
+        IdempotencyRecord record = IdempotencyRecord.builder()
+                .idempotencyKey(idempotencyKey)
+                .endpoint("/api/accounts/transfer")
+                .requestHash(requestHash)
+                .response("Transfer completed successfully")
+                .status(IdempotencyStatus.COMPLETED)
+                .build();
+
+        idempotencyService.save(record);
+
+        return response;
     }
 }
