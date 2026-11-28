@@ -59,9 +59,10 @@ public class AccountServiceImpl implements AccountService {
     }
 
     @Override
+    @Transactional
     public AccountResponse deposit(DepositRequest request) {
 
-        Account account = accountRepository.findByAccountNumber(request.getAccountNumber())
+        Account account = accountRepository.findByAccountNumberWithLock(request.getAccountNumber())
                 .orElseThrow(() -> new AccountNotFoundException("Account not found"));
 
         account.setBalance(account.getBalance().add(request.getAmount()));
@@ -81,9 +82,10 @@ public class AccountServiceImpl implements AccountService {
     }
 
     @Override
+    @Transactional
     public AccountResponse withdraw(WithdrawRequest request) {
 
-        Account account = accountRepository.findByAccountNumber(request.getAccountNumber())
+        Account account = accountRepository.findByAccountNumberWithLock(request.getAccountNumber())
                 .orElseThrow(() -> new AccountNotFoundException("Account not found"));
 
         if (account.getBalance().compareTo(request.getAmount()) < 0) {
@@ -142,6 +144,15 @@ public class AccountServiceImpl implements AccountService {
     @Transactional
     public TransferResponse transfer(String idempotencyKey, TransferRequest request) {
 
+        // Validate basic constraints before taking DB locks
+        if (request.getFromAccountNumber().equals(request.getToAccountNumber())) {
+            throw new InvalidTransferException("Sender and receiver accounts cannot be the same.");
+        }
+
+        if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new InvalidTransferException("Transfer amount must be greater than zero.");
+        }
+
         String requestData = String.join(
                 "|",
                 request.getFromAccountNumber(),
@@ -170,29 +181,32 @@ public class AccountServiceImpl implements AccountService {
                     .build();
         }
 
-        Account sender = accountRepository.findByAccountNumber(request.getFromAccountNumber())
-                .orElseThrow(() -> new AccountNotFoundException("Sender account not found"));
+        // Deadlock Prevention: Deterministic Lock Acquisition Order
+        String firstLockAcc = request.getFromAccountNumber().compareTo(request.getToAccountNumber()) < 0
+                ? request.getFromAccountNumber()
+                : request.getToAccountNumber();
 
-        Account receiver = accountRepository.findByAccountNumber(request.getToAccountNumber())
-                .orElseThrow(() -> new AccountNotFoundException("Receiver account not found"));
+        String secondLockAcc = request.getFromAccountNumber().compareTo(request.getToAccountNumber()) < 0
+                ? request.getToAccountNumber()
+                : request.getFromAccountNumber();
 
-        // Sender and receiver should not be the same
-        if (sender.getAccountNumber().equals(receiver.getAccountNumber())) {
-            throw new InvalidTransferException("Sender and receiver accounts cannot be the same.");
-        }
+        Account firstLocked = accountRepository.findByAccountNumberWithLock(firstLockAcc)
+                .orElseThrow(() -> new AccountNotFoundException("Account not found: " + firstLockAcc));
 
-        // Amount should be greater than zero
-        if (request.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            throw new InvalidTransferException("Transfer amount must be greater than zero.");
-        }
+        Account secondLocked = accountRepository.findByAccountNumberWithLock(secondLockAcc)
+                .orElseThrow(() -> new AccountNotFoundException("Account not found: " + secondLockAcc));
 
-        // Sender should have sufficient balance
+        Account sender = firstLocked.getAccountNumber().equals(request.getFromAccountNumber())
+                ? firstLocked : secondLocked;
+        Account receiver = firstLocked.getAccountNumber().equals(request.getToAccountNumber())
+                ? firstLocked : secondLocked;
+
+        // Check balance under lock
         if (sender.getBalance().compareTo(request.getAmount()) < 0) {
             throw new InsufficientBalanceException("Insufficient balance.");
         }
 
         sender.setBalance(sender.getBalance().subtract(request.getAmount()));
-
         receiver.setBalance(receiver.getBalance().add(request.getAmount()));
 
         Account updatedSender = accountRepository.save(sender);

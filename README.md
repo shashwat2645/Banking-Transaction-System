@@ -128,4 +128,5 @@ src
 - ✅ Day 2 – DTOs, CRUD APIs, Deposit & Withdrawal APIs
 - ✅ Day 3 – Transfer API, Business Validations, Exception Handling
 - ✅ Day 4 – Transaction Module & Transaction History
-- ⏳ Day 5 – Idempotency & Duplicate Transaction Handling
+- ✅ Day 5 – Idempotency & Duplicate Transaction Handling
+- ✅ Day 6 – Concurrency Handling & Database Locking
